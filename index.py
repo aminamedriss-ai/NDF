@@ -156,7 +156,7 @@ creds = service_account.Credentials.from_service_account_info(
 # client = gspread.authorize(creds)
 # drive_service = build("drive", "v3", credentials=creds)
 drive_service = build("sheets", "v4", credentials=creds)
-client = service.spreadsheets()
+client = drive_service.spreadsheets()
 st.title("💰 Transfert Montant à rembourser")
 
 # === Utils ===
@@ -1434,6 +1434,7 @@ if st.button("🔄 Récupérer et transférer"):
             except Exception as e:
 
                 st.error(f"Erreur sur {file['name']} : {e}")
+
 
 
 
