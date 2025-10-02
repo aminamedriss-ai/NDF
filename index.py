@@ -141,13 +141,15 @@ st.markdown(
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets",
          "https://www.googleapis.com/auth/drive"]
 
-CREDENTIALS_FILE = "service_account.json"
+# CREDENTIALS_FILE = "service_account.json"
 DEST_SHEET_ID = "1jxjAstmnsWCuRaYwVIhW-Qh7pZvh-waw3BEQ2HDGvRM"
 ROOT_FOLDER_ID = "12UkT_IjkNazYn9QCUOjgk_ZoUpkNtlMe"
 VERIFIED_ROOT_ID = "1N96PnXaouIs1KqkaKHy_mOCP_gj7-sbP"  # 📂 racine des dossiers VERIFIED
 ndf_root_id = "1KTRuCR59xLgKLCT1_AY3z-lgeh9JFmrb"
 # === AUTH ===
-creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPE)
+creds = service_account.Credentials.from_service_account_info(
+    st.secrets["gcp_service_account"]
+)
 client = gspread.authorize(creds)
 drive_service = build("drive", "v3", credentials=creds)
 
@@ -1426,4 +1428,5 @@ if st.button("🔄 Récupérer et transférer"):
                         format_cell_range(dest_sheet, f"A{last_row}:L{last_row}", fmt)  
 
             except Exception as e:
+
                 st.error(f"Erreur sur {file['name']} : {e}")
