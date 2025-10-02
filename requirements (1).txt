@@ -1,0 +1,17 @@
+streamlit
+pandas
+numpy
+reportlab
+bcrypt
+xlsxwriter
+rapidfuzz
+supabase 
+openpyxl
+pytesseract
+easyocr
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+pydrive2
+
