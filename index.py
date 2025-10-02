@@ -151,7 +151,7 @@ ndf_root_id = "1KTRuCR59xLgKLCT1_AY3z-lgeh9JFmrb"
 # === AUTH ===
 creds = service_account.Credentials.from_service_account_info(
     st.secrets["gcp_service_account"],
-    scopes=SCOPES
+    scopes=SCOPE
 )
 # client = gspread.authorize(creds)
 # drive_service = build("drive", "v3", credentials=creds)
@@ -1434,5 +1434,6 @@ if st.button("🔄 Récupérer et transférer"):
             except Exception as e:
 
                 st.error(f"Erreur sur {file['name']} : {e}")
+
 
 
