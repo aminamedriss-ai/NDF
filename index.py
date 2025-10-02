@@ -28,6 +28,8 @@ from gspread_formatting import (
 import time
 import random
 from gspread_formatting import ConditionalFormatRule, BooleanRule, CellFormat, Color
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 st.set_page_config(
     page_title="Gestion des note de frais",
     page_icon="logo2.png",  # chemin local ou URL
@@ -1430,3 +1432,4 @@ if st.button("🔄 Récupérer et transférer"):
             except Exception as e:
 
                 st.error(f"Erreur sur {file['name']} : {e}")
+
