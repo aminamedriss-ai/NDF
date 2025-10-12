@@ -938,6 +938,13 @@ def traiter_ndf_siemens_optimise(root_siemens_id, client_choisi, sheet_siemens, 
                 
                 # st.success(f"✅ Ligne {i+1} ajoutée avec succès")
                 time.sleep(1)
+                # ✏️ Écriture de la référence dans le fichier source (NDF)
+                try:
+                    source_sheet.update_cell(6, 3, ref)  # ligne 6, colonne C (3)
+                    st.info(f"🔗 Référence '{ref}' écrite dans la NDF ({file['name']}) → C6")
+                except Exception as e:
+                    st.error(f"⚠️ Impossible d’écrire la référence dans {file['name']} : {e}")
+
             except Exception as e:
                 st.error(f"❌ Erreur ajout ligne {i+1}: {e}")
         
@@ -1085,8 +1092,6 @@ def get_verified_amount_from_sheet(sheet, employe, mois_choisi):
 
     return None
 
-
-
 def  traiter_fichiers_ndf_G_D(mois_id, mois_choisi, client_choice, type_choice, statut_choice, facturation_choice, commentaire, dest_sheet, verified_sheet, annee=2025):
     """
     Traite tous les fichiers NDF d'un mois donné et effectue les vérifications
@@ -1165,7 +1170,7 @@ def  traiter_fichiers_ndf_G_D(mois_id, mois_choisi, client_choice, type_choice, 
 
                     # 🆕 Préparer la nouvelle ligne
                     next_id = len(dest_values)
-                    ref = f"{next_id}/{client_choice}/{type_choice}/{annee}"
+                    ref = f"N°{next_id}/{client_choice}/{type_choice}/{annee}"
 
                     nouvelle_ligne = [
                         str(next_id),          # A: ID
@@ -1192,10 +1197,65 @@ def  traiter_fichiers_ndf_G_D(mois_id, mois_choisi, client_choice, type_choice, 
                     # 🎨 Appliquer style et validation
                     appliquer_validations_donnees(dest_sheet, last_row)
                     appliquer_style_ligne(dest_sheet, last_row)
+                    # ✏️ Écriture de la référence dans le fichier source (NDF)
+                    try:
+                        source_sheet.update_cell(6, 3, ref)  # ligne 6, colonne C (3)
+                        st.info(f"🔗 Référence '{ref}' écrite dans la NDF ({file['name']}) → C6")
+                    except Exception as e:
+                        st.error(f"⚠️ Impossible d’écrire la référence dans {file['name']} : {e}")
+
 
             else:
+                # 🔴 Cas NON CONCORDANT
                 delta = round(abs(montant_brut - total_montant_verified), 2)
-                st.error(f"❌ NON CONCORDANT : NDF={montant_brut} / VERIFIED={total_montant_verified} / Δ={delta}")
+                commentaire_non_concordant = f"❌ NON CONCORDANT : NDF={montant_brut} / VERIFIED={total_montant_verified} / Δ={delta}"
+                st.error(commentaire_non_concordant)
+
+                # On ajoute quand même la ligne dans la feuille DEST
+                dest_values = dest_sheet.get_all_values()
+                next_id = len(dest_values)
+                ref = f"N°{next_id}/{client_choice}/{type_choice}/{annee}"
+
+                # 🕐 Essayer de récupérer la période
+                periode = ""
+                if len(values) > 9 and len(values[9]) > 5:
+                    periode = f"{values[9][4]} {values[9][5]}".strip()
+                if not periode:
+                    periode = mois_choisi
+
+                # 🆕 Nouvelle ligne avec le commentaire d'erreur
+                nouvelle_ligne = [
+                    str(next_id),                # A: ID
+                    ref,                         # B: Référence
+                    date,                        # C: Date
+                    type_choice,                 # D
+                    client_choice,               # E
+                    employe,                     # F
+                    periode,                     # G
+                    str(total_montant_verified), # H: Montant VERIFIED
+                    statut_choice,               # I
+                    facturation_choice,          # J
+                    "",                          # K (vide)
+                    commentaire_non_concordant   # L: commentaire
+                ]
+
+                # ➕ Ajout de la ligne
+                dest_sheet.append_row(nouvelle_ligne)
+                st.warning(f"⚠️ Ligne ajoutée pour {employe} (non concordant)")
+
+                # 🎨 Mise en forme jaune
+                last_row = len(dest_sheet.get_all_values())
+                appliquer_style_ligne(dest_sheet, last_row, couleur="JAUNE")
+
+                # Validation et autres formats
+                appliquer_validations_donnees(dest_sheet, last_row)
+                # ✏️ Écriture de la référence dans le fichier source (NDF)
+                try:
+                    source_sheet.update_cell(6, 3, ref)  # ligne 6, colonne C (3)
+                    st.info(f"🔗 Référence '{ref}' écrite dans la NDF ({file['name']}) → C6")
+                except Exception as e:
+                    st.error(f"⚠️ Impossible d’écrire la référence dans {file['name']} : {e}")
+
 
         except Exception as e:
             st.error(f"Erreur sur {file['name']} : {e}")
@@ -1236,9 +1296,20 @@ def appliquer_validations_donnees(dest_sheet, ligne_num):
     )
     set_data_validation_for_cell_range(dest_sheet, f"D{ligne_num}:D{ligne_num}", rule_type)
 
-def appliquer_style_ligne(dest_sheet, ligne_num):
-    """Applique le style sur une ligne spécifique"""
+def appliquer_style_ligne(dest_sheet, ligne_num, couleur="BLANC"):
+    """
+    Applique un style sur une ligne spécifique.
+    couleur : "VERT" (par défaut) ou "JAUNE" pour les cas non concordants.
+    """
+    # 🎨 Choix de la couleur de fond
+    if couleur.upper() == "JAUNE":
+        bg_color = Color(1, 1, 0.6)   # Jaune clair
+    else:
+        bg_color = Color(1, 1, 1)  # Vert clair (par défaut)
+
+    # ✏️ Définition du format
     fmt = CellFormat(
+        backgroundColor=bg_color,
         textFormat=TextFormat(fontFamily="Baloo 2", bold=False),
         borders=Borders(
             top=Border(style="SOLID", color=Color(0, 0, 0)),
@@ -1247,6 +1318,8 @@ def appliquer_style_ligne(dest_sheet, ligne_num):
             right=Border(style="SOLID", color=Color(0, 0, 0)),
         )
     )
+
+    # 🧾 Application du style sur la ligne complète (A à L)
     format_cell_range(dest_sheet, f"A{ligne_num}:L{ligne_num}", fmt)
 # Fonctions auxiliaires
 def appliquer_maj_siemens(worksheet, mises_a_jour, nb_lignes):
@@ -1421,7 +1494,7 @@ if st.button("🔄 Récupérer et transférer"):
 
                         # === Construction de la nouvelle ligne ===
                         next_id = len(dest_values)  # ID auto
-                        ref = f"{next_id}/{client_choice}/{type_choice}/2025"  # Référence générée
+                        ref = f"N°{next_id}/{client_choice}/{type_choice}/2025"  # Référence générée
 
                         nouvelle_ligne = [
                             str(next_id),                        
