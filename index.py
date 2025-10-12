@@ -1002,7 +1002,91 @@ def appliquer_validations_donnees(dest_sheet, ligne_num):
         st.success(f"✅ Validations appliquées sur la ligne {ligne_num}")
     except Exception as e:
         st.error(f"❌ Erreur application des validations ligne {ligne_num}: {e}")
-def traiter_fichiers_ndf_G_D(mois_id, mois_choisi, client_choice, type_choice, statut_choice, facturation_choice, commentaire, dest_sheet, annee=2025):
+def get_verified_amount_from_sheet(sheet, employe, mois_choisi):
+    """
+    🔍 Recherche le montant correspondant à un employé et un mois dans la feuille 'Travel expenses'.
+    """
+    values = sheet.get_all_values()
+
+    # --- Section Travel expenses ---
+    start_idx = next(
+        (i for i, row in enumerate(values) if any("travel expenses" in c.lower() for c in row if c)), None
+    )
+    if start_idx is None:
+        raise ValueError("Section 'Travel expenses' introuvable dans la feuille")
+
+    end_idx = next(
+        (i for i, row in enumerate(values[start_idx + 1:], start=start_idx + 1)
+         if any("allowance" in c.lower() for c in row if c)),
+        len(values)
+    )
+
+    table = values[start_idx:end_idx]
+    if not table or len(table) < 2:
+        raise ValueError("Section 'Travel expenses' vide ou mal délimitée")
+
+    # --- En-tête ---
+    header_row_idx = next(
+        (i for i, row in enumerate(table) if any("name" in c.strip().lower() for c in row if c)), None
+    )
+    if header_row_idx is None:
+        raise ValueError("Colonne 'Name' introuvable dans la section Travel expenses")
+
+    header = table[header_row_idx]
+    data_rows = table[header_row_idx + 1:]
+    name_col = next((i for i, c in enumerate(header) if "name" in c.strip().lower()), None)
+
+    # --- Normalisation du mois ---
+    mois_map = {
+    "décembre": (4, 5),
+    "decembre": (4, 5),
+    "janvier": (6, 7),
+    "février": (8, 9),
+    "fevrier": (8, 9),
+    "mars": (10, 11),
+    "avril": (12, 13),
+    "mai": (14, 15),
+    "juin": (16, 17),
+    "juillet": (18, 19),
+    "août": (20, 21),
+    "aout": (20, 21),
+    "septembre": (22, 23),
+    "octobre": (24, 25),
+    "novembre": (26, 27),
+}
+
+
+    # 🧠 Nouvelle logique pour extraire le mot du mois proprement
+    mois_key = normalize(mois_choisi).lower()
+    import re
+    mois_key = re.sub(r"[^a-zàâçéèêëîïôûùüÿñæœ\s-]", "", mois_key)  # enlève chiffres et ponctuation
+    mots = mois_key.split()
+    mois_key = next((m for m in mots if m in mois_map.keys()), None)
+
+    if not mois_key:
+        raise ValueError(f"Mois '{mois_choisi}' non reconnu pour la vérification (valeur nettoyée: '{mois_key}')")
+
+    col1, col2 = mois_map[mois_key]
+
+    # --- Recherche de l'employé ---
+    for row in data_rows:
+        if len(row) > name_col and match_nom(normalize(employe), normalize(row[name_col])):
+            
+            raw1 = row[col1] if len(row) > col1 else ""
+            raw2 = row[col2] if len(row) > col2 else ""
+            montant1 = to_float(raw1)
+            montant2 = to_float(raw2)
+            st.write(f"[DEBUG] {employe} : col1={col1}, val1='{raw1}' -> {montant1} | col2={col2}, val2='{raw2}' -> {montant2}")
+            total = (montant1 or 0) + (montant2 or 0)
+            st.write(f"[DEBUG] Mois choisi : {mois_key} → colonnes {col1} (M) et {col2} (C)")
+
+            return total
+
+    return None
+
+
+
+def  traiter_fichiers_ndf_G_D(mois_id, mois_choisi, client_choice, type_choice, statut_choice, facturation_choice, commentaire, dest_sheet, verified_sheet, annee=2025):
     """
     Traite tous les fichiers NDF d'un mois donné et effectue les vérifications
     """
@@ -1040,106 +1124,77 @@ def traiter_fichiers_ndf_G_D(mois_id, mois_choisi, client_choice, type_choice, s
             montant_brut = to_float(montant)
 
             # === Vérification dans VERIFIED ===
-            verified_id = find_verified_for_month(mois_choisi, annee)
-            if not verified_id:
-                st.error("⚠️ Aucun dossier VERIFIED trouvé pour ce mois")
+            total_montant_verified = get_verified_amount_from_sheet(verified_sheet, employe, mois_choisi)
+
+            if total_montant_verified is None:
+                st.warning(f"⚠️ Aucun montant VERIFIED trouvé pour {employe}")
                 continue
 
-            employee_folders = list_subfolders(verified_id)
-            emp_folder = find_employee_folder(employee_folders, employe)
-
-            if not emp_folder:
-                st.error(f"⚠️ Aucun dossier VERIFIED trouvé pour {employe} ({mois_choisi})")
-                continue
-
-            # === SOMMER LES MONTANTS DE TOUS LES FICHIERS TRAVEL EXPENSE ===
-            total_montant_verified, fichiers_trouves = find_and_sum_verified_amounts(emp_folder, employe)
-
-            if not fichiers_trouves:
-                st.warning(f"⚠️ Aucun montant VERIFIED trouvé pour {employe} ({mois_choisi})")
-                continue
-
-            # === AFFICHER LE RÉSULTAT DE LA SOMME ===
+            # === Comparaison ===
             st.write("---")
-            st.subheader(f"📊 RÉSUMÉ POUR {employe}")
-            st.write(f"**Montant source (NDF) :** {montant_brut}")
-            
-            if len(fichiers_trouves) > 1:
-                st.write("**Montants vérifiés trouvés :**")
-                for f in fichiers_trouves:
-                    st.write(f"  - {f['nom']} : {f['montant']}")
-                st.success(f"**SOMME TOTALE vérifiée : {total_montant_verified}**")
-            else:
-                st.success(f"**Montant vérifié unique : {total_montant_verified}**")
-            
-            # === Comparaison des montants (SOMME vs SOURCE) ===
-            if abs(montant_brut - total_montant_verified) < 0.01:  # Tolérance pour les floats
+            st.subheader(f"📊 {employe}")
+            st.write(f"Montant NDF : {montant_brut} | Montant VERIFIED : {total_montant_verified}")
+
+            if abs(montant_brut - total_montant_verified) < 0.01:
                 dest_values = dest_sheet.get_all_values()
                 updated = False
+
                 for i, row in enumerate(dest_values):
                     if len(row) >= 6:
                         nom_dest = normalize(row[5])
                         date_dest = normalize(row[2])
 
                         if match_nom(normalize(employe), nom_dest) and match_date(normalize(date), date_dest):
-                            dest_sheet.update_cell(i+1, 8, montant)
+                            # ✅ Mise à jour du montant VERIFIED (colonne H = index 7)
+                            dest_sheet.update_cell(i + 1, 8, str(total_montant_verified))
                             updated = True
                             break
 
                 if updated:
-                    if len(fichiers_trouves) > 1:
-                        st.success(f"✅ {file['name']} → {employe} : SOMME VERIFIED = {montant_brut} ({len(fichiers_trouves)} fichiers)")
-                    else:
-                        st.success(f"✅ {file['name']} → {employe} : {montant_brut} (VERIFIED ok)")
+                    st.success(f"✅ {file['name']} → {employe} mis à jour dans la feuille DEST avec montant VERIFIED = {total_montant_verified}")
                 else:
-                    # === Aucun matching trouvé → création d'une nouvelle ligne ===
-                    st.warning(f"⚠️ Pas de correspondance dans destination pour {employe} ({file['name']}), création d'une nouvelle ligne")
+                    st.warning(f"⚠️ Aucun matching trouvé dans DEST → ajout d'une nouvelle ligne pour {employe}")
 
-                    # === Récupération de la période depuis le fichier source ===
+                    # 🕐 Essayer de récupérer la période
                     periode = ""
                     if len(values) > 9 and len(values[9]) > 5:
                         periode = f"{values[9][4]} {values[9][5]}".strip()
+                    if not periode:
+                        periode = mois_choisi
 
-                    # === Construction de la nouvelle ligne ===
+                    # 🆕 Préparer la nouvelle ligne
                     next_id = len(dest_values)
                     ref = f"{next_id}/{client_choice}/{type_choice}/{annee}"
 
                     nouvelle_ligne = [
-                        str(next_id),
-                        ref,
-                        date if date else "",
-                        type_choice,
-                        client_choice,
-                        employe,
-                        periode if periode else mois_choisi,
-                        str(total_montant_verified),
-                        statut_choice,
-                        facturation_choice,
-                        "",
-                        commentaire
+                        str(next_id),          # A: ID
+                        ref,                   # B: Référence
+                        date,                  # C: Date
+                        type_choice,           # D
+                        client_choice,         # E
+                        employe,               # F
+                        periode,               # G
+                        str(total_montant_verified),  # H: Montant
+                        statut_choice,         # I
+                        facturation_choice,    # J
+                        "",                    # K (vide par défaut)
+                        commentaire            # L
                     ]
 
-                    # ➕ Ajout dans la feuille destination
+                    # ➕ Ajout dans la feuille
                     dest_sheet.append_row(nouvelle_ligne)
-                    st.success(f"➕ Nouvelle ligne ajoutée pour {employe} ({periode if periode else mois_choisi}) avec montant {total_montant_verified}")
+                    st.success(f"➕ Nouvelle ligne ajoutée pour {employe} ({periode}) avec montant VERIFIED = {total_montant_verified}")
 
-                    # ✅ Récupérer l'index de la dernière ligne insérée
+                    # 🔢 Dernière ligne ajoutée
                     last_row = len(dest_sheet.get_all_values())
 
-                    # ✅ Appliquer les validations de données
+                    # 🎨 Appliquer style et validation
                     appliquer_validations_donnees(dest_sheet, last_row)
-                    
-                    # ✅ Appliquer le style
                     appliquer_style_ligne(dest_sheet, last_row)
 
             else:
-                delta = abs(total_montant_verified - montant_brut)
-                if len(fichiers_trouves) > 1:
-                    st.error(f"❌ NON CONCORDANT pour {employe} : "
-                            f"Source={montant_brut}, SOMME_VERIFIED={total_montant_verified}, Delta={delta}")
-                else:
-                    st.error(f"❌ NON CONCORDANT pour {employe} : "
-                            f"Source={montant_brut}, VERIFIED={total_montant_verified}, Delta={delta}")
+                delta = round(abs(montant_brut - total_montant_verified), 2)
+                st.error(f"❌ NON CONCORDANT : NDF={montant_brut} / VERIFIED={total_montant_verified} / Δ={delta}")
 
         except Exception as e:
             st.error(f"Erreur sur {file['name']} : {e}")
@@ -1287,17 +1342,22 @@ if st.button("🔄 Récupérer et transférer"):
         st.success("🎉 Traitement terminé !")
     elif client_choice == "G+D":
         # Dans votre code principal, remplacez le bloc par :
+        VERIFIED_SHEET_ID = "1Rv4zNx7Q9OxBxTnFGP1oRW47fZyfP7Oxdn25w0UM9EU"
+        verified_sheet = client.open_by_key(VERIFIED_SHEET_ID).sheet1
+
+        # Dans votre code principal, remplacez le bloc par :
         traiter_fichiers_ndf_G_D(
-            mois_id=mois_id,
-            mois_choisi=mois_choisi,
-            client_choice=client_choice,
-            type_choice=type_choice,
-            statut_choice=statut_choice,
-            facturation_choice=facturation_choice,
-            commentaire=commentaire,
-            dest_sheet=dest_sheet,
-            annee=2025
-        )
+    mois_id=mois_id,
+    mois_choisi=mois_choisi,
+    client_choice=client_choice,
+    type_choice=type_choice,
+    statut_choice=statut_choice,
+    facturation_choice=facturation_choice,
+    commentaire=commentaire,
+    dest_sheet=dest_sheet,
+    verified_sheet=verified_sheet,  # 👈 ici !
+    annee=2025
+)
     else:
         fichiers = list_sheets_in_folder(mois_id)
         st.write(f"📂 {len(fichiers)} fichiers trouvés dans {mois_choisi}")
@@ -1434,6 +1494,7 @@ if st.button("🔄 Récupérer et transférer"):
             except Exception as e:
 
                 st.error(f"Erreur sur {file['name']} : {e}")
+
 
 
 
