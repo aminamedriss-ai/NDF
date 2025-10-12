@@ -197,7 +197,8 @@ def to_float(val):
     orig = s
 
     # nettoyer espaces (y compris NBSP)
-    s = s.replace("\u00A0", "").replace(" ", "")
+    # nettoyer espaces (y compris NBSP et espace fine insécable U+202F)
+    s = s.replace("\u00A0", "").replace("\u202F", "").replace(" ", "")
 
     # gère pourcentage (ex: "1,1%")
     if "%" in s:
@@ -1286,9 +1287,7 @@ def appliquer_maj_global(worksheet, mises_a_jour, nb_lignes):
     except Exception as e:
         st.error(f"❌ Erreur mise à jour Global : {e}")
 # === Destination sheet ===
-spreadsheet = client.open_by_key(DEST_SHEET_ID)
-dest_sheet = spreadsheet.worksheet("2025")
-
+dest_sheet = client.open_by_key(DEST_SHEET_ID).sheet1
 # 2️⃣ Lister les clients (sous-dossiers de NDF)
 clients = list_subfolders(ndf_root_id)
 client_names = [c["name"] for c in clients]
@@ -1321,8 +1320,8 @@ statut_choice = st.sidebar.selectbox("💳 Statut de paiement :", ["Non payé", 
 type_choice = st.sidebar.selectbox("Type :", ["NDF", "FD", "FDM"])
 commentaire = st.sidebar.text_input("📝 Commentaire :", "")
 
-sheet_siemens = client.open_by_key("1lDF2GGKZ3WPSb2IDnTOtocnhoYd80ULZXeRSzqaz85E").worksheet("Liste des Débours")
-sheet_global = client.open_by_key("1jxjAstmnsWCuRaYwVIhW-Qh7pZvh-waw3BEQ2HDGvRM").worksheet("2025")
+sheet_siemens = client.open_by_key("1ZI726DLcpqsho3ZVx-ofx825DcE1vSqaCn2FlT-cFcI").worksheet("Feuille 3")
+sheet_global = client.open_by_key("1q4oY0r0-y6elShZKn7h1p_pqsXF2Eqvxv8QnwRDAA04").worksheet("Feuille 1")
 root_id = "1KTRuCR59xLgKLCT1_AY3z-lgeh9JFmrb"
 
 # === Étape 2 : transfert avec vérification ===
@@ -1341,7 +1340,6 @@ if st.button("🔄 Récupérer et transférer"):
 
         st.success("🎉 Traitement terminé !")
     elif client_choice == "G+D":
-        # Dans votre code principal, remplacez le bloc par :
         VERIFIED_SHEET_ID = "1Rv4zNx7Q9OxBxTnFGP1oRW47fZyfP7Oxdn25w0UM9EU"
         verified_sheet = client.open_by_key(VERIFIED_SHEET_ID).sheet1
 
@@ -1358,6 +1356,7 @@ if st.button("🔄 Récupérer et transférer"):
     verified_sheet=verified_sheet,  # 👈 ici !
     annee=2025
 )
+
     else:
         fichiers = list_sheets_in_folder(mois_id)
         st.write(f"📂 {len(fichiers)} fichiers trouvés dans {mois_choisi}")
@@ -1492,11 +1491,4 @@ if st.button("🔄 Récupérer et transférer"):
                         format_cell_range(dest_sheet, f"A{last_row}:L{last_row}", fmt)  
 
             except Exception as e:
-
                 st.error(f"Erreur sur {file['name']} : {e}")
-
-
-
-
-
-
