@@ -1394,7 +1394,7 @@ type_choice = st.sidebar.selectbox("Type :", ["NDF", "FD", "FDM"])
 commentaire = st.sidebar.text_input("📝 Commentaire :", "")
 
 sheet_siemens = client.open_by_key("1ZI726DLcpqsho3ZVx-ofx825DcE1vSqaCn2FlT-cFcI").worksheet("Feuille 3")
-sheet_global = client.open_by_key("1q4oY0r0-y6elShZKn7h1p_pqsXF2Eqvxv8QnwRDAA04").worksheet("Feuille 1")
+sheet_global = client.open_by_key("1jxjAstmnsWCuRaYwVIhW-Qh7pZvh-waw3BEQ2HDGvRM").worksheet("2025")
 root_id = "1KTRuCR59xLgKLCT1_AY3z-lgeh9JFmrb"
 
 # === Étape 2 : transfert avec vérification ===
@@ -1565,3 +1565,4 @@ if st.button("🔄 Récupérer et transférer"):
 
             except Exception as e:
                 st.error(f"Erreur sur {file['name']} : {e}")
+
