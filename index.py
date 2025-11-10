@@ -159,7 +159,6 @@ drive_service = build("drive", "v3", credentials=creds)
 # client = drive_service.spreadsheets()
 st.title("💰 Transfert Montant à rembourser")
 
-st.title("💰 Transfert Montant à rembourser")
 
 # === Utils ===
 def normalize(text):
@@ -1584,5 +1583,6 @@ if st.button("🔄 Récupérer et transférer"):
 
             except Exception as e:
                 st.error(f"Erreur sur {file['name']} : {e}")
+
 
 
