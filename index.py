@@ -159,6 +159,8 @@ drive_service = build("drive", "v3", credentials=creds)
 # client = drive_service.spreadsheets()
 st.title("💰 Transfert Montant à rembourser")
 
+st.title("💰 Transfert Montant à rembourser")
+
 # === Utils ===
 def normalize(text):
     if not text:
@@ -186,64 +188,59 @@ def list_sheets_in_folder(folder_id):
 def to_float(val):
     if val is None:
         return None
-    # si c'est déjà numérique
     if isinstance(val, (int, float)):
         return float(val)
     s = str(val).strip()
     if not s:
         return None
 
-    # DEBUG: garder la chaîne originale pour logs si besoin
-    orig = s
+    orig = s  # debug si besoin
 
-    # nettoyer espaces (y compris NBSP)
-    # nettoyer espaces (y compris NBSP et espace fine insécable U+202F)
-    s = s.replace("\u00A0", "").replace("\u202F", "").replace(" ", "")
+    # --- Nettoyage des espaces spéciaux ---
+    s = (s.replace("\u00A0", "")
+           .replace("\u202F", "")
+           .replace("\xa0", "")
+           .replace(" ", ""))
 
-    # gère pourcentage (ex: "1,1%")
+    # --- Supprimer les devises et symboles courants ---
+    s = re.sub(r"(DZD|dzd|EUR|€|\$|USD)", "", s)
+
+    # --- Pourcentage ---
     if "%" in s:
-        s2 = re.sub(r"[^\d,.\-]", "", s)
-        s2 = s2.replace(",", ".")
+        s2 = re.sub(r"[^\d,.\-]", "", s).replace(",", ".")
         try:
             return float(s2) / 100.0
         except:
             return None
 
-    # enlever lettres / currency
+    # --- Nettoyage général ---
     s = re.sub(r"[^\d\-,.()]", "", s)
 
-    # parenthèses -> négatif
+    # Parenthèses -> négatif
     if "(" in s and ")" in s:
         s = s.replace("(", "-").replace(")", "")
 
-    # garder seulement signes -, digits, ., ,
-    s = re.sub(r"[^0-9\-,.]", "", s)
-
-    # cas avec à la fois , et . -> heuristique
+    # Cas avec ',' et '.'
     if "," in s and "." in s:
-        # si la première occurence est ',' avant '.', on suppose que ',' est séparateur de milliers
         if s.find(',') < s.find('.'):
             s = s.replace(',', '')
         else:
-            # sinon on suppose que '.' est milliers et ',' est décimal
             s = s.replace('.', '').replace(',', '.')
     else:
-        # si plusieurs ',' -> ce sont des milliers
         if s.count(',') > 1:
             s = s.replace(',', '')
-        # si plusieurs '.' -> ce sont des milliers
         if s.count('.') > 1:
             s = s.replace('.', '')
-
-        # si une seule ',' et aucune '.', on suppose virgule décimale européen
         if ',' in s and '.' not in s:
             s = s.replace(',', '.')
 
-    # final parse
     try:
         return float(s)
-    except:
+    except Exception:
+        # DEBUG : tu peux afficher ici pour vérifier si ça bloque encore
+        # st.write(f"[DEBUG to_float] Impossible de convertir '{orig}' -> '{s}'")
         return None
+
 
 def match_nom(nom_source, nom_dest):
     return bool(difflib.get_close_matches(nom_source, [nom_dest], n=1, cutoff=0.7))
@@ -1098,8 +1095,12 @@ def  traiter_fichiers_ndf_G_D(mois_id, mois_choisi, client_choice, type_choice, 
     """
     fichiers = list_sheets_in_folder(mois_id)
     st.write(f"📂 {len(fichiers)} fichiers trouvés dans {mois_choisi}")
-    
+    st.write("🧾 Liste complète des fichiers détectés :")
+    for f in fichiers:
+        st.write(f"- {f['name']} ({f['id']})")
+
     for file in fichiers:
+        st.write(f"➡️ Lecture de : {file['name']}")
         try:
             # === Lecture du fichier source ===
             source_sheet = client.open_by_key(file["id"]).sheet1
@@ -1152,7 +1153,7 @@ def  traiter_fichiers_ndf_G_D(mois_id, mois_choisi, client_choice, type_choice, 
 
                         if match_nom(normalize(employe), nom_dest) and match_date(normalize(date), date_dest):
                             # ✅ Mise à jour du montant VERIFIED (colonne H = index 7)
-                            dest_sheet.update_cell(i + 1, 8, str(total_montant_verified))
+                            dest_sheet.update_cell(i + 1, 8, str(montant_brut))
                             updated = True
                             break
 
@@ -1180,7 +1181,7 @@ def  traiter_fichiers_ndf_G_D(mois_id, mois_choisi, client_choice, type_choice, 
                         client_choice,         # E
                         employe,               # F
                         periode,               # G
-                        str(total_montant_verified),  # H: Montant
+                        str(montant_brut),  # H: Montant
                         statut_choice,         # I
                         facturation_choice,    # J
                         "",                    # K (vide par défaut)
@@ -1211,50 +1212,69 @@ def  traiter_fichiers_ndf_G_D(mois_id, mois_choisi, client_choice, type_choice, 
                 commentaire_non_concordant = f"❌ NON CONCORDANT : NDF={montant_brut} / VERIFIED={total_montant_verified} / Δ={delta}"
                 st.error(commentaire_non_concordant)
 
-                # On ajoute quand même la ligne dans la feuille DEST
                 dest_values = dest_sheet.get_all_values()
-                next_id = len(dest_values)
-                ref = f"N°{next_id}/{client_choice}/{type_choice}/{annee}"
+                updated = False
 
-                # 🕐 Essayer de récupérer la période
-                periode = ""
-                if len(values) > 9 and len(values[9]) > 5:
-                    periode = f"{values[9][4]} {values[9][5]}".strip()
-                if not periode:
-                    periode = mois_choisi
+                # 🔍 Vérifier si la ligne existe déjà dans DEST
+                for i, row in enumerate(dest_values):
+                    if len(row) >= 6:
+                        nom_dest = normalize(row[5])
+                        date_dest = normalize(row[2])
 
-                # 🆕 Nouvelle ligne avec le commentaire d'erreur
-                nouvelle_ligne = [
-                    str(next_id),                # A: ID
-                    ref,                         # B: Référence
-                    date,                        # C: Date
-                    type_choice,                 # D
-                    client_choice,               # E
-                    employe,                     # F
-                    periode,                     # G
-                    str(total_montant_verified), # H: Montant VERIFIED
-                    statut_choice,               # I
-                    facturation_choice,          # J
-                    "",                          # K (vide)
-                    commentaire_non_concordant   # L: commentaire
-                ]
+                        if match_nom(normalize(employe), nom_dest) and match_date(normalize(date), date_dest):
+                            # ⚠️ Mise à jour du montant et du commentaire (colonnes H et L)
+                            dest_sheet.update_cell(i + 1, 8, str(montant_brut))  # Colonne H
+                            dest_sheet.update_cell(i + 1, 12, commentaire_non_concordant)  # Colonne L
+                            appliquer_style_ligne(dest_sheet, i + 1, couleur="JAUNE")
+                            updated = True
+                            st.warning(f"⚠️ {file['name']} → Ligne existante mise à jour (non concordant)")
+                            break
 
-                # ➕ Ajout de la ligne
-                dest_sheet.append_row(nouvelle_ligne)
-                st.warning(f"⚠️ Ligne ajoutée pour {employe} (non concordant)")
+                if not updated:
+                    # 🆕 Sinon, création d'une nouvelle ligne
+                    next_id = len(dest_values)
+                    ref = f"N°{next_id}/{client_choice}/{type_choice}/{annee}"
 
-                # 🎨 Mise en forme jaune
-                last_row = len(dest_sheet.get_all_values())
-                appliquer_style_ligne(dest_sheet, last_row, couleur="JAUNE")
+                    # 🕐 Essayer de récupérer la période
+                    periode = ""
+                    if len(values) > 9 and len(values[9]) > 5:
+                        periode = f"{values[9][4]} {values[9][5]}".strip()
+                    if not periode:
+                        periode = mois_choisi
 
-                # Validation et autres formats
-                appliquer_validations_donnees(dest_sheet, last_row)
+                    # Nouvelle ligne avec le commentaire d'erreur
+                    nouvelle_ligne = [
+                        str(next_id),                # A: ID
+                        ref,                         # B: Référence
+                        date,                        # C: Date
+                        type_choice,                 # D
+                        client_choice,               # E
+                        employe,                     # F
+                        periode,                     # G
+                        str(montant_brut), # H: Montant VERIFIED
+                        statut_choice,               # I
+                        facturation_choice,          # J
+                        "",                          # K (vide)
+                        commentaire_non_concordant   # L: commentaire
+                    ]
+
+                    dest_sheet.append_row(nouvelle_ligne)
+                    st.warning(f"⚠️ Nouvelle ligne ajoutée pour {employe} (non concordant)")
+
+                    # 🎨 Mise en forme jaune
+                    last_row = len(dest_sheet.get_all_values())
+                    appliquer_style_ligne(dest_sheet, last_row, couleur="JAUNE")
+
+                    # Validation et autres formats
+                    appliquer_validations_donnees(dest_sheet, last_row)
+
                 # ✏️ Écriture de la référence dans le fichier source (NDF)
                 try:
-                    source_sheet.update_cell(6, 3, ref)  # ligne 6, colonne C (3)
+                    source_sheet.update_cell(6, 3, ref)
                     st.info(f"🔗 Référence '{ref}' écrite dans la NDF ({file['name']}) → C6")
                 except Exception as e:
                     st.error(f"⚠️ Impossible d’écrire la référence dans {file['name']} : {e}")
+
 
 
         except Exception as e:
@@ -1396,7 +1416,6 @@ commentaire = st.sidebar.text_input("📝 Commentaire :", "")
 sheet_siemens = client.open_by_key("1ZI726DLcpqsho3ZVx-ofx825DcE1vSqaCn2FlT-cFcI").worksheet("Feuille 3")
 sheet_global = client.open_by_key("1jxjAstmnsWCuRaYwVIhW-Qh7pZvh-waw3BEQ2HDGvRM").worksheet("2025")
 root_id = "1KTRuCR59xLgKLCT1_AY3z-lgeh9JFmrb"
-
 # === Étape 2 : transfert avec vérification ===
 if st.button("🔄 Récupérer et transférer"):
     if client_choice == "Siemens" or client_choice == "Siemens Energy":
@@ -1565,4 +1584,5 @@ if st.button("🔄 Récupérer et transférer"):
 
             except Exception as e:
                 st.error(f"Erreur sur {file['name']} : {e}")
+
 
